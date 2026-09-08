@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════
+ // ═══════════════════════════════════════════════════════
 //  CONFIGURAZIONE — sostituisci con l'URL del TUO deployment
 // ═══════════════════════════════════════════════════════
 const API_URL = 'https://script.google.com/macros/s/AKfycbw48DqSDcV6N31EmMZ1-GaCk1cQ8JhDDkRDgYoh9dueD8nKtGxJ9MEzvAyKa_c-Qyuv7w/exec';
@@ -144,6 +144,12 @@ function todayISO() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+function ddmmToISO(s) { // dd/MM/yyyy → yyyy-MM-dd
+  if (!s) return '';
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+}
+
 // ═══════════════════════════════════════════════════════
 //  NAVIGAZIONE
 // ═══════════════════════════════════════════════════════
@@ -277,6 +283,7 @@ async function loadPressione() {
 }
 
 function renderPressione(dati) {
+  App.pressioneCache = dati || [];
   renderChartPressione(dati ? dati.slice(0, 10).reverse() : []);
 
   const el = document.getElementById('pressione-list');
@@ -289,7 +296,7 @@ function renderPressione(dati) {
     const cat = classifyBP(p.sistolica, p.diastolica);
     const ora = p.dataOra ? p.dataOra.split(' ')[1] || '' : '';
     return `
-      <div class="list-item">
+      <div class="list-item" style="cursor:pointer" onclick="openModalModificaPressione('${p.id}')">
         <div>
           <div class="list-date">${p.dataChart}</div>
           <div style="font-size:11px;color:var(--text3)">${ora}</div>
@@ -347,10 +354,34 @@ function fabAction() {
   if (App.paginaCorrente === 'esami')     openModalEsame();
 }
 
-// ── MODAL INSERIMENTO ────────────────────────────────────
+// ── MODAL INSERIMENTO / MODIFICA ─────────────────────────
 function openModal() {
+  document.getElementById('modal-press-title').textContent = 'Nuova misurazione';
+  document.getElementById('edit-press-id').value = '';
+  document.getElementById('btn-elimina-press').style.display = 'none';
+  document.getElementById('inp-sist').value = '';
+  document.getElementById('inp-diast').value = '';
+  document.getElementById('inp-pulse').value = '';
+  document.getElementById('inp-nota').value = '';
+  document.getElementById('bp-preview').innerHTML = '';
+  document.getElementById('btn-salva-pressione').textContent = 'Salva misurazione';
   document.getElementById('modal-pressione').classList.add('open');
   document.getElementById('inp-sist').focus();
+}
+
+function openModalModificaPressione(id) {
+  const p = (App.pressioneCache || []).find(x => String(x.id) === String(id));
+  if (!p) return;
+  document.getElementById('modal-press-title').textContent = 'Modifica misurazione';
+  document.getElementById('edit-press-id').value = p.id;
+  document.getElementById('btn-elimina-press').style.display = 'block';
+  document.getElementById('inp-sist').value = p.sistolica;
+  document.getElementById('inp-diast').value = p.diastolica;
+  document.getElementById('inp-pulse').value = p.pulsazioni;
+  document.getElementById('inp-nota').value = p.dettaglio || '';
+  updateBpPreview();
+  document.getElementById('btn-salva-pressione').textContent = 'Aggiorna misurazione';
+  document.getElementById('modal-pressione').classList.add('open');
 }
 
 function closeModalOnBg(e) {
@@ -359,11 +390,6 @@ function closeModalOnBg(e) {
 
 function closeModal() {
   document.getElementById('modal-pressione').classList.remove('open');
-  document.getElementById('inp-sist').value = '';
-  document.getElementById('inp-diast').value = '';
-  document.getElementById('inp-pulse').value = '';
-  document.getElementById('inp-nota').value = '';
-  document.getElementById('bp-preview').innerHTML = '';
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -382,6 +408,7 @@ function updateBpPreview() {
 }
 
 async function salvaPressione() {
+  const id    = document.getElementById('edit-press-id').value;
   const sist  = document.getElementById('inp-sist').value;
   const diast = document.getElementById('inp-diast').value;
   const pulse = document.getElementById('inp-pulse').value;
@@ -396,16 +423,18 @@ async function salvaPressione() {
   btn.textContent = 'Salvataggio…';
   btn.disabled = true;
 
+  const azione  = id ? 'modificaPressione' : 'salvaPressione';
+  const payload = id
+    ? { id, sistolica: sist, diastolica: diast, pulsazioni: pulse, dettaglio: nota }
+    : { email: App.pazienteCorrente.email, sistolica: sist, diastolica: diast, pulsazioni: pulse, dettaglio: nota };
+
   try {
-    const resp = await apiPost('salvaPressione', {
-      email: App.pazienteCorrente.email,
-      sistolica: sist, diastolica: diast, pulsazioni: pulse, dettaglio: nota,
-    });
-    btn.textContent = 'Salva misurazione';
+    const resp = await apiPost(azione, payload);
+    btn.textContent = id ? 'Aggiorna misurazione' : 'Salva misurazione';
     btn.disabled = false;
     const res = resp.result || {};
     if (res.ok) {
-      showToast('Salvato! ✓', 'success');
+      showToast(id ? 'Aggiornato ✓' : 'Salvato! ✓', 'success');
       closeModal();
       loadPressione();
       if (App.paginaCorrente === 'dashboard') loadDashboard();
@@ -413,8 +442,28 @@ async function salvaPressione() {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
   } catch (err) {
-    btn.textContent = 'Salva misurazione';
+    btn.textContent = id ? 'Aggiorna misurazione' : 'Salva misurazione';
     btn.disabled = false;
+    showToast('Errore di connessione', 'error');
+  }
+}
+
+async function eliminaPressione() {
+  const id = document.getElementById('edit-press-id').value;
+  if (!id) return;
+  if (!confirm('Eliminare questa misurazione?')) return;
+  try {
+    const resp = await apiPost('eliminaPressione', { id });
+    const res = resp.result || {};
+    if (res.ok) {
+      showToast('Misurazione eliminata', 'success');
+      closeModal();
+      loadPressione();
+      if (App.paginaCorrente === 'dashboard') loadDashboard();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
     showToast('Errore di connessione', 'error');
   }
 }
@@ -482,14 +531,14 @@ function renderEsami(dati) {
     return;
   }
   el.innerHTML = dati.map(e => `
-    <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px">
+    <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;cursor:pointer" onclick="openModalModificaEsame('${e.id}')">
       <div style="display:flex;justify-content:space-between;width:100%">
         <div style="font-weight:600;font-size:14px">${e.visite || 'Esame generico'}</div>
         <div class="list-date">${e.data}</div>
       </div>
       ${renderValoriEsame(e)}
       ${e.nota ? `<div style="font-size:12px;color:var(--text2);font-style:italic">${e.nota}</div>` : ''}
-      ${e.allegati && e.allegati.length ? `<div style="font-size:12px;color:var(--accent2);cursor:pointer" onclick="apriAllegati('${e.id}')">📎 ${e.allegati.length} allegato/i — tocca per aprire</div>` : ''}
+      ${e.allegati && e.allegati.length ? `<div style="font-size:12px;color:var(--accent2)" onclick="event.stopPropagation();apriAllegati('${e.id}')">📎 ${e.allegati.length} allegato/i — tocca per aprire</div>` : ''}
     </div>
   `).join('');
 }
@@ -514,11 +563,35 @@ function renderValoriEsame(e) {
   </div>`;
 }
 
-// ── MODAL NUOVO ESAME ─────────────────────────────────────
+// ── MODAL NUOVO / MODIFICA ESAME ──────────────────────────
 function openModalEsame() {
+  document.getElementById('modal-esame-title').textContent = 'Nuovo esame';
+  document.getElementById('edit-esame-id').value = '';
+  document.getElementById('btn-elimina-esame').style.display = 'none';
   document.getElementById('inp-data-esame').value = todayISO();
   ['inp-visite', 'inp-ldl', 'inp-hdl', 'inp-trig', 'inp-creat', 'inp-tsh', 'inp-vitd', 'inp-tariffa', 'inp-nota-esame']
     .forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('btn-salva-esame').textContent = 'Salva esame';
+  document.getElementById('modal-esame').classList.add('open');
+}
+
+function openModalModificaEsame(id) {
+  const e = (App.esamiCache || []).find(x => String(x.id) === String(id));
+  if (!e) return;
+  document.getElementById('modal-esame-title').textContent = 'Modifica esame';
+  document.getElementById('edit-esame-id').value = e.id;
+  document.getElementById('btn-elimina-esame').style.display = 'block';
+  document.getElementById('inp-data-esame').value = ddmmToISO(e.data) || todayISO();
+  document.getElementById('inp-visite').value = e.visite || '';
+  document.getElementById('inp-ldl').value = e.colLDL || '';
+  document.getElementById('inp-hdl').value = e.colHDL || '';
+  document.getElementById('inp-trig').value = e.trig || '';
+  document.getElementById('inp-creat').value = e.creatinina || '';
+  document.getElementById('inp-tsh').value = e.tsh || '';
+  document.getElementById('inp-vitd').value = e.vitD || '';
+  document.getElementById('inp-tariffa').value = e.tariffa || '';
+  document.getElementById('inp-nota-esame').value = e.nota || '';
+  document.getElementById('btn-salva-esame').textContent = 'Aggiorna esame';
   document.getElementById('modal-esame').classList.add('open');
 }
 
@@ -531,7 +604,9 @@ function closeModalEsame() {
 }
 
 async function salvaEsame() {
+  const id = document.getElementById('edit-esame-id').value;
   const dati = {
+    id,
     email:      App.pazienteCorrente.email,
     data:       document.getElementById('inp-data-esame').value,
     visite:     document.getElementById('inp-visite').value,
@@ -551,13 +626,15 @@ async function salvaEsame() {
   btn.textContent = 'Salvataggio…';
   btn.disabled = true;
 
+  const azione = id ? 'modificaEsame' : 'salvaEsame';
+
   try {
-    const resp = await apiPost('salvaEsame', dati);
-    btn.textContent = 'Salva esame';
+    const resp = await apiPost(azione, dati);
+    btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
     btn.disabled = false;
     const res = resp.result || {};
     if (res.ok) {
-      showToast('Esame salvato ✓', 'success');
+      showToast(id ? 'Esame aggiornato ✓' : 'Esame salvato ✓', 'success');
       closeModalEsame();
       loadEsami();
       if (App.paginaCorrente === 'dashboard') loadDashboard();
@@ -565,8 +642,28 @@ async function salvaEsame() {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
   } catch (err) {
-    btn.textContent = 'Salva esame';
+    btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
     btn.disabled = false;
+    showToast('Errore di connessione', 'error');
+  }
+}
+
+async function eliminaEsame() {
+  const id = document.getElementById('edit-esame-id').value;
+  if (!id) return;
+  if (!confirm('Eliminare questo esame definitivamente?')) return;
+  try {
+    const resp = await apiPost('eliminaEsame', { id });
+    const res = resp.result || {};
+    if (res.ok) {
+      showToast('Esame eliminato', 'success');
+      closeModalEsame();
+      loadEsami();
+      if (App.paginaCorrente === 'dashboard') loadDashboard();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
     showToast('Errore di connessione', 'error');
   }
 }
