@@ -1,4 +1,4 @@
- // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  CONFIGURAZIONE — sostituisci con l'URL del TUO deployment
 // ═══════════════════════════════════════════════════════
 const API_URL = 'https://script.google.com/macros/s/AKfycbw48DqSDcV6N31EmMZ1-GaCk1cQ8JhDDkRDgYoh9dueD8nKtGxJ9MEzvAyKa_c-Qyuv7w/exec';
@@ -168,12 +168,13 @@ function navigateTo(pagina) {
   document.getElementById('topbar-title').textContent = titoli[pagina] || 'App Medica';
 
   const fab = document.getElementById('fab-add');
-  fab.style.display = (pagina === 'pressione' || pagina === 'esami') ? 'flex' : 'none';
+  fab.style.display = (pagina === 'pressione' || pagina === 'esami' || pagina === 'patologie') ? 'flex' : 'none';
 
   App.paginaCorrente = pagina;
 
   if (pagina === 'pressione') loadPressione();
   if (pagina === 'esami')     loadEsami();
+  if (pagina === 'patologie') loadPatologie();
   if (pagina === 'profilo')   renderProfilo();
 }
 
@@ -182,6 +183,7 @@ function onPazienteChange(email) {
   if (App.paginaCorrente === 'dashboard')  loadDashboard();
   if (App.paginaCorrente === 'pressione')  loadPressione();
   if (App.paginaCorrente === 'esami')      loadEsami();
+  if (App.paginaCorrente === 'patologie')  loadPatologie();
   if (App.paginaCorrente === 'profilo')    renderProfilo();
 }
 
@@ -352,6 +354,7 @@ function renderChartPressione(dati) {
 function fabAction() {
   if (App.paginaCorrente === 'pressione') openModal();
   if (App.paginaCorrente === 'esami')     openModalEsame();
+  if (App.paginaCorrente === 'patologie') openModalPatologia();
 }
 
 // ── MODAL INSERIMENTO / MODIFICA ─────────────────────────
@@ -468,17 +471,17 @@ async function eliminaPressione() {
   }
 }
 
-// ── ALLEGATI ESAME ─────────────────────────────────────────
-async function apriAllegati(idEsame) {
-  const esame = (App.esamiCache || []).find(e => String(e.id) === String(idEsame));
-  if (!esame || !esame.allegati || !esame.allegati.length) return;
+// ── ALLEGATI (esami e patologie) ─────────────────────────────
+async function apriAllegatiDa(cache, id) {
+  const item = (cache || []).find(e => String(e.id) === String(id));
+  if (!item || !item.allegati || !item.allegati.length) return;
 
   document.getElementById('modal-allegati').classList.add('open');
   document.getElementById('allegati-lista').innerHTML =
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
 
   try {
-    const resp = await apiPost('allegati', { percorsi: esame.allegati });
+    const resp = await apiPost('allegati', { percorsi: item.allegati });
     const lista = resp.result || [];
     if (!lista.length) {
       document.getElementById('allegati-lista').innerHTML = '<div class="empty-state"><p>Nessun allegato trovato.</p></div>';
@@ -506,6 +509,9 @@ function closeModalAllegatiOnBg(e) {
 function closeModalAllegati() {
   document.getElementById('modal-allegati').classList.remove('open');
 }
+
+function apriAllegati(id) { return apriAllegatiDa(App.esamiCache, id); }
+function apriAllegatiPatologia(id) { return apriAllegatiDa(App.patologieCache, id); }
 
 // ═══════════════════════════════════════════════════════
 //  ESAMI
@@ -568,6 +574,7 @@ function openModalEsame() {
   document.getElementById('modal-esame-title').textContent = 'Nuovo esame';
   document.getElementById('edit-esame-id').value = '';
   document.getElementById('btn-elimina-esame').style.display = 'none';
+  document.getElementById('upload-allegato-esame-wrap').style.display = 'none';
   document.getElementById('inp-data-esame').value = todayISO();
   ['inp-visite', 'inp-ldl', 'inp-hdl', 'inp-trig', 'inp-creat', 'inp-tsh', 'inp-vitd', 'inp-tariffa', 'inp-nota-esame']
     .forEach(id => { document.getElementById(id).value = ''; });
@@ -581,6 +588,9 @@ function openModalModificaEsame(id) {
   document.getElementById('modal-esame-title').textContent = 'Modifica esame';
   document.getElementById('edit-esame-id').value = e.id;
   document.getElementById('btn-elimina-esame').style.display = 'block';
+  document.getElementById('upload-allegato-esame-wrap').style.display = 'block';
+  document.getElementById('upload-allegato-esame-stato').textContent = '';
+  document.getElementById('inp-upload-allegato-esame').value = '';
   document.getElementById('inp-data-esame').value = ddmmToISO(e.data) || todayISO();
   document.getElementById('inp-visite').value = e.visite || '';
   document.getElementById('inp-ldl').value = e.colLDL || '';
@@ -593,6 +603,43 @@ function openModalModificaEsame(id) {
   document.getElementById('inp-nota-esame').value = e.nota || '';
   document.getElementById('btn-salva-esame').textContent = 'Aggiorna esame';
   document.getElementById('modal-esame').classList.add('open');
+}
+
+async function caricaNuovoAllegatoEsame(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const id = document.getElementById('edit-esame-id').value;
+  if (!id) return;
+
+  const stato = document.getElementById('upload-allegato-esame-stato');
+  stato.textContent = 'Caricamento in corso…';
+
+  try {
+    const base64Data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const resp = await apiPost('caricaAllegatoEsame', {
+      base64Data, mimeType: file.type, fileName: file.name, idDettEsame: id,
+    });
+    const res = resp.result || {};
+    if (res.ok) {
+      stato.textContent = 'Caricato ✓';
+      showToast('Allegato caricato ✓', 'success');
+      loadEsami(); // aggiorna la cache così il badge 📎 riflette il nuovo conteggio
+    } else {
+      stato.textContent = '';
+      showToast(res.msg || resp.error || 'Errore caricamento', 'error');
+    }
+  } catch (err) {
+    stato.textContent = '';
+    showToast('Errore durante il caricamento', 'error');
+  } finally {
+    input.value = '';
+  }
 }
 
 function closeModalEsameOnBg(e) {
@@ -669,6 +716,135 @@ async function eliminaEsame() {
 }
 
 // ═══════════════════════════════════════════════════════
+//  PATOLOGIE
+// ═══════════════════════════════════════════════════════
+async function loadPatologie() {
+  if (!App.pazienteCorrente) return;
+  document.getElementById('patologie-list').innerHTML =
+    '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+  try {
+    const resp = await apiGet('patologie', { paziente: App.pazienteCorrente.email, limit: 30 });
+    if (resp.error) { showToast('Errore caricamento patologie', 'error'); return; }
+    renderPatologie(resp.result);
+  } catch (err) {
+    showToast('Errore caricamento patologie', 'error');
+  }
+}
+
+function renderPatologie(dati) {
+  App.patologieCache = dati || [];
+  const el = document.getElementById('patologie-list');
+  if (!dati || dati.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💊</div><p>Nessuna patologia registrata</p></div>';
+    return;
+  }
+  el.innerHTML = dati.map(p => `
+    <div class="list-item" style="flex-direction:column;align-items:flex-start;gap:8px;cursor:pointer" onclick="openModalModificaPatologia('${p.id}')">
+      <div style="display:flex;justify-content:space-between;width:100%">
+        <div style="font-weight:600;font-size:14px">${p.patologia || p.categoria || 'Patologia'}</div>
+        <div class="list-date">${p.data}</div>
+      </div>
+      ${p.categoria ? `<div style="font-size:12px;color:var(--text3)">${p.categoria}</div>` : ''}
+      ${p.sintomi ? `<div style="font-size:12px;color:var(--text2)">Sintomi: ${p.sintomi}</div>` : ''}
+      ${p.note ? `<div style="font-size:12px;color:var(--text2);font-style:italic">${p.note}</div>` : ''}
+      ${p.allegati && p.allegati.length ? `<div style="font-size:12px;color:var(--accent2)" onclick="event.stopPropagation();apriAllegatiPatologia('${p.id}')">📎 ${p.allegati.length} allegato/i — tocca per aprire</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function openModalPatologia() {
+  document.getElementById('modal-patologia-title').textContent = 'Nuova patologia';
+  document.getElementById('edit-patologia-id').value = '';
+  document.getElementById('btn-elimina-patologia').style.display = 'none';
+  document.getElementById('inp-data-patologia').value = todayISO();
+  ['inp-categoria', 'inp-patologia', 'inp-sintomi', 'inp-nota-patologia']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('btn-salva-patologia').textContent = 'Salva patologia';
+  document.getElementById('modal-patologia').classList.add('open');
+}
+
+function openModalModificaPatologia(id) {
+  const p = (App.patologieCache || []).find(x => String(x.id) === String(id));
+  if (!p) return;
+  document.getElementById('modal-patologia-title').textContent = 'Modifica patologia';
+  document.getElementById('edit-patologia-id').value = p.id;
+  document.getElementById('btn-elimina-patologia').style.display = 'block';
+  document.getElementById('inp-data-patologia').value = ddmmToISO(p.data) || todayISO();
+  document.getElementById('inp-categoria').value = p.categoria || '';
+  document.getElementById('inp-patologia').value = p.patologia || '';
+  document.getElementById('inp-sintomi').value = p.sintomi || '';
+  document.getElementById('inp-nota-patologia').value = p.note || '';
+  document.getElementById('btn-salva-patologia').textContent = 'Aggiorna patologia';
+  document.getElementById('modal-patologia').classList.add('open');
+}
+
+function closeModalPatologiaOnBg(e) {
+  if (e.target === e.currentTarget) closeModalPatologia();
+}
+
+function closeModalPatologia() {
+  document.getElementById('modal-patologia').classList.remove('open');
+}
+
+async function salvaPatologia() {
+  const id = document.getElementById('edit-patologia-id').value;
+  const dati = {
+    id,
+    email:     App.pazienteCorrente.email,
+    data:      document.getElementById('inp-data-patologia').value,
+    categoria: document.getElementById('inp-categoria').value,
+    patologia: document.getElementById('inp-patologia').value,
+    sintomi:   document.getElementById('inp-sintomi').value,
+    note:      document.getElementById('inp-nota-patologia').value,
+  };
+
+  if (!dati.patologia && !dati.categoria) { showToast('Inserisci almeno categoria o patologia', 'error'); return; }
+
+  const btn = document.getElementById('btn-salva-patologia');
+  btn.textContent = 'Salvataggio…';
+  btn.disabled = true;
+
+  const azione = id ? 'modificaPatologia' : 'salvaPatologia';
+
+  try {
+    const resp = await apiPost(azione, dati);
+    btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
+    btn.disabled = false;
+    const res = resp.result || {};
+    if (res.ok) {
+      showToast(id ? 'Patologia aggiornata ✓' : 'Patologia salvata ✓', 'success');
+      closeModalPatologia();
+      loadPatologie();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
+    btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
+    btn.disabled = false;
+    showToast('Errore di connessione', 'error');
+  }
+}
+
+async function eliminaPatologia() {
+  const id = document.getElementById('edit-patologia-id').value;
+  if (!id) return;
+  if (!confirm('Eliminare questa patologia definitivamente?')) return;
+  try {
+    const resp = await apiPost('eliminaPatologia', { id });
+    const res = resp.result || {};
+    if (res.ok) {
+      showToast('Patologia eliminata', 'success');
+      closeModalPatologia();
+      loadPatologie();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
+    showToast('Errore di connessione', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 //  PROFILO
 // ═══════════════════════════════════════════════════════
 function renderProfilo() {
@@ -690,15 +866,21 @@ function renderProfilo() {
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px">
       ${infoRow('🎂', 'Data di nascita', p.nascita || '—')}
+      ${infoRow('📍', 'Luogo di nascita', p.luogo || '—')}
       ${infoRow('🩸', 'Gruppo sanguigno', p.sangue || '—')}
+      ${infoRow('📱', 'Cellulare', p.cellulare || '—')}
+      ${infoRow('🏠', 'Indirizzo', p.indirizzo || '—')}
+      ${infoRow('🪪', 'Codice Fiscale', p.codFis || '—')}
       ${infoRow('⚠️', 'Allergie', p.allergie || 'Nessuna')}
+      ${infoRow('👤', 'Parente stretto', p.parente || '—')}
     </div>
     <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Account connesso</div>
       <div style="font-size:14px;font-weight:500">${u.nome} ${u.cognome}</div>
       ${u.isAdmin ? '<span class="bp-badge bp-normale" style="margin-top:8px;display:inline-flex">Admin</span>' : ''}
     </div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:20px" onclick="cambiaCodice()">Cambia codice di accesso</button>`;
+    <button class="btn btn-secondary" style="width:100%;margin-top:20px" onclick="openModalProfilo()">✏️ Modifica profilo</button>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="cambiaCodice()">Cambia codice di accesso</button>`;
 }
 
 function infoRow(icon, label, value) {
@@ -710,6 +892,80 @@ function infoRow(icon, label, value) {
         <div style="font-size:14px;font-weight:500;margin-top:2px">${value}</div>
       </div>
     </div>`;
+}
+
+function openModalProfilo() {
+  const p = App.pazienteCorrente;
+  if (!p) return;
+  document.getElementById('inp-paz-nome').value = p.nome || '';
+  document.getElementById('inp-paz-nascita').value = ddmmToISO(p.nascita) || '';
+  document.getElementById('inp-paz-luogo').value = p.luogo || '';
+  document.getElementById('inp-paz-sangue').value = p.sangue || '';
+  document.getElementById('inp-paz-cellulare').value = p.cellulare || '';
+  document.getElementById('inp-paz-indirizzo').value = p.indirizzo || '';
+  document.getElementById('inp-paz-codfis').value = p.codFis || '';
+  document.getElementById('inp-paz-allergie').value = p.allergie || '';
+  document.getElementById('inp-paz-parente').value = p.parente || '';
+  document.getElementById('inp-paz-cell-parente').value = p.cellulareParente || '';
+  document.getElementById('modal-profilo').classList.add('open');
+}
+
+function closeModalProfiloOnBg(e) {
+  if (e.target === e.currentTarget) closeModalProfilo();
+}
+
+function closeModalProfilo() {
+  document.getElementById('modal-profilo').classList.remove('open');
+}
+
+async function salvaProfilo() {
+  const p = App.pazienteCorrente;
+  if (!p) return;
+
+  const dati = {
+    id:               p.id,
+    nome:             document.getElementById('inp-paz-nome').value,
+    nascita:          document.getElementById('inp-paz-nascita').value,
+    luogo:            document.getElementById('inp-paz-luogo').value,
+    sangue:           document.getElementById('inp-paz-sangue').value,
+    cellulare:        document.getElementById('inp-paz-cellulare').value,
+    indirizzo:        document.getElementById('inp-paz-indirizzo').value,
+    codFis:           document.getElementById('inp-paz-codfis').value.toUpperCase(),
+    allergie:         document.getElementById('inp-paz-allergie').value,
+    parente:          document.getElementById('inp-paz-parente').value,
+    cellulareParente: document.getElementById('inp-paz-cell-parente').value,
+  };
+
+  const btn = document.getElementById('btn-salva-profilo');
+  btn.textContent = 'Salvataggio…';
+  btn.disabled = true;
+
+  try {
+    const resp = await apiPost('modificaPaziente', dati);
+    btn.textContent = 'Salva modifiche';
+    btn.disabled = false;
+    const res = resp.result || {};
+    if (res.ok) {
+      // Aggiorna la cache locale così la pagina mostra subito i nuovi dati
+      Object.assign(p, {
+        nome: dati.nome, luogo: dati.luogo, sangue: dati.sangue, cellulare: dati.cellulare,
+        indirizzo: dati.indirizzo, codFis: dati.codFis, allergie: dati.allergie,
+        parente: dati.parente, cellulareParente: dati.cellulareParente,
+        nascita: dati.nascita ? dati.nascita.split('-').reverse().join('/') : '',
+      });
+      const opt = document.querySelector(`#paziente-select option[value="${p.email}"]`);
+      if (opt) opt.textContent = dati.nome;
+      showToast('Profilo aggiornato ✓', 'success');
+      closeModalProfilo();
+      renderProfilo();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
+    btn.textContent = 'Salva modifiche';
+    btn.disabled = false;
+    showToast('Errore di connessione', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
