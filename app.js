@@ -139,6 +139,11 @@ function showError(msg) {
   document.getElementById('error-screen').classList.add('show');
 }
 
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 // ═══════════════════════════════════════════════════════
 //  NAVIGAZIONE
 // ═══════════════════════════════════════════════════════
@@ -157,7 +162,7 @@ function navigateTo(pagina) {
   document.getElementById('topbar-title').textContent = titoli[pagina] || 'App Medica';
 
   const fab = document.getElementById('fab-add');
-  fab.style.display = pagina === 'pressione' ? 'flex' : 'none';
+  fab.style.display = (pagina === 'pressione' || pagina === 'esami') ? 'flex' : 'none';
 
   App.paginaCorrente = pagina;
 
@@ -336,6 +341,12 @@ function renderChartPressione(dati) {
   });
 }
 
+// ── FAB: apre il modal giusto in base alla pagina ────────
+function fabAction() {
+  if (App.paginaCorrente === 'pressione') openModal();
+  if (App.paginaCorrente === 'esami')     openModalEsame();
+}
+
 // ── MODAL INSERIMENTO ────────────────────────────────────
 function openModal() {
   document.getElementById('modal-pressione').classList.add('open');
@@ -460,6 +471,63 @@ function renderValoriEsame(e) {
       return `<span class="bp-badge ${cls}" style="font-size:10px">${v.label} ${v.val} ${v.unit}</span>`;
     }).join('')}
   </div>`;
+}
+
+// ── MODAL NUOVO ESAME ─────────────────────────────────────
+function openModalEsame() {
+  document.getElementById('inp-data-esame').value = todayISO();
+  ['inp-visite', 'inp-ldl', 'inp-hdl', 'inp-trig', 'inp-creat', 'inp-tsh', 'inp-vitd', 'inp-tariffa', 'inp-nota-esame']
+    .forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('modal-esame').classList.add('open');
+}
+
+function closeModalEsameOnBg(e) {
+  if (e.target === e.currentTarget) closeModalEsame();
+}
+
+function closeModalEsame() {
+  document.getElementById('modal-esame').classList.remove('open');
+}
+
+async function salvaEsame() {
+  const dati = {
+    email:      App.pazienteCorrente.email,
+    data:       document.getElementById('inp-data-esame').value,
+    visite:     document.getElementById('inp-visite').value,
+    colLDL:     document.getElementById('inp-ldl').value,
+    colHDL:     document.getElementById('inp-hdl').value,
+    trig:       document.getElementById('inp-trig').value,
+    creatinina: document.getElementById('inp-creat').value,
+    tsh:        document.getElementById('inp-tsh').value,
+    vitD:       document.getElementById('inp-vitd').value,
+    tariffa:    document.getElementById('inp-tariffa').value,
+    nota:       document.getElementById('inp-nota-esame').value,
+  };
+
+  if (!dati.visite) { showToast('Inserisci almeno il tipo di visita/esame', 'error'); return; }
+
+  const btn = document.getElementById('btn-salva-esame');
+  btn.textContent = 'Salvataggio…';
+  btn.disabled = true;
+
+  try {
+    const resp = await apiPost('salvaEsame', dati);
+    btn.textContent = 'Salva esame';
+    btn.disabled = false;
+    const res = resp.result || {};
+    if (res.ok) {
+      showToast('Esame salvato ✓', 'success');
+      closeModalEsame();
+      loadEsami();
+      if (App.paginaCorrente === 'dashboard') loadDashboard();
+    } else {
+      showToast(res.msg || resp.error || 'Errore', 'error');
+    }
+  } catch (err) {
+    btn.textContent = 'Salva esame';
+    btn.disabled = false;
+    showToast('Errore di connessione', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════
