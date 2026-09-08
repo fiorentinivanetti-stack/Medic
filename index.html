@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="it">
 <head>
   <meta charset="UTF-8">
@@ -139,7 +139,8 @@
 <div class="modal-overlay" id="modal-pressione" onclick="closeModalOnBg(event)">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
-    <div class="modal-title">Nuova misurazione</div>
+    <div class="modal-title" id="modal-press-title">Nuova misurazione</div>
+    <input type="hidden" id="edit-press-id">
 
     <div class="form-row">
       <div class="form-group">
@@ -167,6 +168,7 @@
     <button class="btn btn-primary" id="btn-salva-pressione" onclick="salvaPressione()">
       Salva misurazione
     </button>
+    <button class="btn btn-secondary" id="btn-elimina-press" onclick="eliminaPressione()" style="width:100%;margin-top:8px;display:none;color:var(--accent);border-color:var(--accent)">🗑️ Elimina misurazione</button>
   </div>
 </div>
 
@@ -174,7 +176,8 @@
 <div class="modal-overlay" id="modal-esame" onclick="closeModalEsameOnBg(event)">
   <div class="modal-sheet">
     <div class="modal-handle"></div>
-    <div class="modal-title">Nuovo esame</div>
+    <div class="modal-title" id="modal-esame-title">Nuovo esame</div>
+    <input type="hidden" id="edit-esame-id">
 
     <div class="form-group">
       <label class="form-label">Data</label>
@@ -202,6 +205,7 @@
     </div>
 
     <button class="btn btn-primary" id="btn-salva-esame" onclick="salvaEsame()" style="margin-top:8px">Salva esame</button>
+    <button class="btn btn-secondary" id="btn-elimina-esame" onclick="eliminaEsame()" style="width:100%;margin-top:8px;display:none;color:var(--accent);border-color:var(--accent)">🗑️ Elimina esame</button>
   </div>
 </div>
 
