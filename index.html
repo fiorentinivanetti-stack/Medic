@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
   <meta charset="UTF-8">
@@ -202,6 +202,16 @@
     </div>
 
     <button class="btn btn-primary" id="btn-salva-esame" onclick="salvaEsame()" style="margin-top:8px">Salva esame</button>
+  </div>
+</div>
+
+<!-- ── MODAL ALLEGATI ─────────────────────────────────── -->
+<div class="modal-overlay" id="modal-allegati" onclick="closeModalAllegatiOnBg(event)">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Allegati</div>
+    <div id="allegati-lista"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="closeModalAllegati()">Chiudi</button>
   </div>
 </div>
 
