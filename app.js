@@ -1,4 +1,4 @@
- // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  CONFIGURAZIONE — sostituisci con l'URL del TUO deployment
 // ═══════════════════════════════════════════════════════
 const API_URL = 'https://script.google.com/macros/s/AKfycbw48DqSDcV6N31EmMZ1-GaCk1cQ8JhDDkRDgYoh9dueD8nKtGxJ9MEzvAyKa_c-Qyuv7w/exec';
@@ -419,6 +419,45 @@ async function salvaPressione() {
   }
 }
 
+// ── ALLEGATI ESAME ─────────────────────────────────────────
+async function apriAllegati(idEsame) {
+  const esame = (App.esamiCache || []).find(e => String(e.id) === String(idEsame));
+  if (!esame || !esame.allegati || !esame.allegati.length) return;
+
+  document.getElementById('modal-allegati').classList.add('open');
+  document.getElementById('allegati-lista').innerHTML =
+    '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+
+  try {
+    const resp = await apiPost('allegati', { percorsi: esame.allegati });
+    const lista = resp.result || [];
+    if (!lista.length) {
+      document.getElementById('allegati-lista').innerHTML = '<div class="empty-state"><p>Nessun allegato trovato.</p></div>';
+      return;
+    }
+    document.getElementById('allegati-lista').innerHTML = lista.map(a => {
+      if (a.url) {
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <a href="${a.url}" target="_blank" style="color:var(--accent2);text-decoration:none;font-size:14px">📎 ${a.nome}</a>
+        </div>`;
+      }
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border);color:var(--text3);font-size:13px">
+        ⚠️ ${a.nome} — ${a.errore || 'non trovato'}
+      </div>`;
+    }).join('');
+  } catch (err) {
+    document.getElementById('allegati-lista').innerHTML = '<div class="empty-state"><p>Errore nel caricamento degli allegati.</p></div>';
+  }
+}
+
+function closeModalAllegatiOnBg(e) {
+  if (e.target === e.currentTarget) closeModalAllegati();
+}
+
+function closeModalAllegati() {
+  document.getElementById('modal-allegati').classList.remove('open');
+}
+
 // ═══════════════════════════════════════════════════════
 //  ESAMI
 // ═══════════════════════════════════════════════════════
@@ -436,6 +475,7 @@ async function loadEsami() {
 }
 
 function renderEsami(dati) {
+  App.esamiCache = dati || [];
   const el = document.getElementById('esami-list');
   if (!dati || dati.length === 0) {
     el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔬</div><p>Nessun esame registrato</p></div>';
@@ -449,6 +489,7 @@ function renderEsami(dati) {
       </div>
       ${renderValoriEsame(e)}
       ${e.nota ? `<div style="font-size:12px;color:var(--text2);font-style:italic">${e.nota}</div>` : ''}
+      ${e.allegati && e.allegati.length ? `<div style="font-size:12px;color:var(--accent2);cursor:pointer" onclick="apriAllegati('${e.id}')">📎 ${e.allegati.length} allegato/i — tocca per aprire</div>` : ''}
     </div>
   `).join('');
 }
