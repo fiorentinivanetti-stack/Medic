@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
   <meta charset="UTF-8">
@@ -87,8 +87,8 @@
 
     <section class="page" id="page-patologie">
       <p class="section-title">Farmaci e patologie</p>
-      <div class="card">
-        <div class="empty-state"><div class="empty-state-icon">💊</div><p>Sezione in sviluppo</p></div>
+      <div class="card" id="patologie-list">
+        <div class="empty-state"><div class="empty-state-icon">💊</div><p>Nessuna patologia registrata</p></div>
       </div>
     </section>
 
@@ -204,8 +204,105 @@
       <div class="form-group"><label class="form-label">Note</label><input class="form-input" type="text" id="inp-nota-esame" placeholder="…"></div>
     </div>
 
+    <div class="form-group" id="upload-allegato-esame-wrap" style="display:none">
+      <label class="form-label">Aggiungi allegato (foto o PDF)</label>
+      <input class="form-input" type="file" id="inp-upload-allegato-esame" accept="image/*,application/pdf"
+        onchange="caricaNuovoAllegatoEsame(this)">
+      <div id="upload-allegato-esame-stato" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
+    </div>
+
     <button class="btn btn-primary" id="btn-salva-esame" onclick="salvaEsame()" style="margin-top:8px">Salva esame</button>
     <button class="btn btn-secondary" id="btn-elimina-esame" onclick="eliminaEsame()" style="width:100%;margin-top:8px;display:none;color:var(--accent);border-color:var(--accent)">🗑️ Elimina esame</button>
+  </div>
+</div>
+
+<!-- ── MODAL NUOVA/MODIFICA PATOLOGIA ──────────────────── -->
+<div class="modal-overlay" id="modal-patologia" onclick="closeModalPatologiaOnBg(event)">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-patologia-title">Nuova patologia</div>
+    <input type="hidden" id="edit-patologia-id">
+
+    <div class="form-group">
+      <label class="form-label">Data</label>
+      <input class="form-input" type="date" id="inp-data-patologia">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Categoria</label>
+      <input class="form-input" type="text" id="inp-categoria" placeholder="es. Cuore, Ossa e articolazioni…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Patologia</label>
+      <input class="form-input" type="text" id="inp-patologia" placeholder="es. Ipertensione">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Sintomi</label>
+      <input class="form-input" type="text" id="inp-sintomi" placeholder="…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <textarea class="form-input" id="inp-nota-patologia" rows="3" placeholder="es. posologia, durata della cura…" style="resize:vertical"></textarea>
+    </div>
+
+    <button class="btn btn-primary" id="btn-salva-patologia" onclick="salvaPatologia()" style="margin-top:8px">Salva patologia</button>
+    <button class="btn btn-secondary" id="btn-elimina-patologia" onclick="eliminaPatologia()" style="width:100%;margin-top:8px;display:none;color:var(--accent);border-color:var(--accent)">🗑️ Elimina patologia</button>
+  </div>
+</div>
+
+<!-- ── MODAL MODIFICA PROFILO ──────────────────────────── -->
+<div class="modal-overlay" id="modal-profilo" onclick="closeModalProfiloOnBg(event)">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Modifica profilo</div>
+
+    <div class="form-group">
+      <label class="form-label">Nome e Cognome</label>
+      <input class="form-input" type="text" id="inp-paz-nome">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data di nascita</label>
+        <input class="form-input" type="date" id="inp-paz-nascita">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Luogo di nascita</label>
+        <input class="form-input" type="text" id="inp-paz-luogo">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Gruppo sanguigno</label>
+        <input class="form-input" type="text" id="inp-paz-sangue" placeholder="es. A+">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cellulare</label>
+        <input class="form-input" type="tel" id="inp-paz-cellulare" inputmode="tel">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Indirizzo</label>
+      <input class="form-input" type="text" id="inp-paz-indirizzo">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Codice Fiscale</label>
+      <input class="form-input" type="text" id="inp-paz-codfis" style="text-transform:uppercase" maxlength="16">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Allergie</label>
+      <textarea class="form-input" id="inp-paz-allergie" rows="4" placeholder="es. Penicillina, lattosio, polline…" style="resize:vertical"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Parente stretto</label>
+        <input class="form-input" type="text" id="inp-paz-parente">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Cell. parente</label>
+        <input class="form-input" type="tel" id="inp-paz-cell-parente" inputmode="tel">
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-salva-profilo" onclick="salvaProfilo()" style="margin-top:8px">Salva modifiche</button>
   </div>
 </div>
 
