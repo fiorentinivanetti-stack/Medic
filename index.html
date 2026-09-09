@@ -244,6 +244,13 @@
       <textarea class="form-input" id="inp-nota-patologia" rows="3" placeholder="es. posologia, durata della cura…" style="resize:vertical"></textarea>
     </div>
 
+    <div class="form-group">
+      <label class="form-label">Allegati (foto o PDF)</label>
+      <input class="form-input" type="file" id="inp-upload-allegato-patologia" accept="image/*,application/pdf" multiple
+        onchange="selezionaAllegatiPatologia(this)">
+      <div id="allegati-pendenti-patologia" style="margin-top:6px"></div>
+    </div>
+
     <button class="btn btn-primary" id="btn-salva-patologia" onclick="salvaPatologia()" style="margin-top:8px">Salva patologia</button>
     <button class="btn btn-secondary" id="btn-elimina-patologia" onclick="eliminaPatologia()" style="width:100%;margin-top:8px;display:none;color:var(--accent);border-color:var(--accent)">🗑️ Elimina patologia</button>
   </div>
