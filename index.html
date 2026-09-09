@@ -204,11 +204,11 @@
       <div class="form-group"><label class="form-label">Note</label><input class="form-input" type="text" id="inp-nota-esame" placeholder="…"></div>
     </div>
 
-    <div class="form-group" id="upload-allegato-esame-wrap" style="display:none">
-      <label class="form-label">Aggiungi allegato (foto o PDF)</label>
-      <input class="form-input" type="file" id="inp-upload-allegato-esame" accept="image/*,application/pdf"
-        onchange="caricaNuovoAllegatoEsame(this)">
-      <div id="upload-allegato-esame-stato" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
+    <div class="form-group">
+      <label class="form-label">Allegati (foto o PDF)</label>
+      <input class="form-input" type="file" id="inp-upload-allegato-esame" accept="image/*,application/pdf" multiple
+        onchange="selezionaAllegatiEsame(this)">
+      <div id="allegati-pendenti-esame" style="margin-top:6px"></div>
     </div>
 
     <button class="btn btn-primary" id="btn-salva-esame" onclick="salvaEsame()" style="margin-top:8px">Salva esame</button>
