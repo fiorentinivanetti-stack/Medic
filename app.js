@@ -574,10 +574,12 @@ function openModalEsame() {
   document.getElementById('modal-esame-title').textContent = 'Nuovo esame';
   document.getElementById('edit-esame-id').value = '';
   document.getElementById('btn-elimina-esame').style.display = 'none';
-  document.getElementById('upload-allegato-esame-wrap').style.display = 'none';
   document.getElementById('inp-data-esame').value = todayISO();
   ['inp-visite', 'inp-ldl', 'inp-hdl', 'inp-trig', 'inp-creat', 'inp-tsh', 'inp-vitd', 'inp-tariffa', 'inp-nota-esame']
     .forEach(id => { document.getElementById(id).value = ''; });
+  App.filesEsamePendenti = [];
+  document.getElementById('inp-upload-allegato-esame').value = '';
+  renderAllegatiPendentiEsame();
   document.getElementById('btn-salva-esame').textContent = 'Salva esame';
   document.getElementById('modal-esame').classList.add('open');
 }
@@ -588,9 +590,6 @@ function openModalModificaEsame(id) {
   document.getElementById('modal-esame-title').textContent = 'Modifica esame';
   document.getElementById('edit-esame-id').value = e.id;
   document.getElementById('btn-elimina-esame').style.display = 'block';
-  document.getElementById('upload-allegato-esame-wrap').style.display = 'block';
-  document.getElementById('upload-allegato-esame-stato').textContent = '';
-  document.getElementById('inp-upload-allegato-esame').value = '';
   document.getElementById('inp-data-esame').value = ddmmToISO(e.data) || todayISO();
   document.getElementById('inp-visite').value = e.visite || '';
   document.getElementById('inp-ldl').value = e.colLDL || '';
@@ -601,45 +600,43 @@ function openModalModificaEsame(id) {
   document.getElementById('inp-vitd').value = e.vitD || '';
   document.getElementById('inp-tariffa').value = e.tariffa || '';
   document.getElementById('inp-nota-esame').value = e.nota || '';
+  App.filesEsamePendenti = [];
+  document.getElementById('inp-upload-allegato-esame').value = '';
+  renderAllegatiPendentiEsame();
   document.getElementById('btn-salva-esame').textContent = 'Aggiorna esame';
   document.getElementById('modal-esame').classList.add('open');
 }
 
-async function caricaNuovoAllegatoEsame(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const id = document.getElementById('edit-esame-id').value;
-  if (!id) return;
+// ── Allegati selezionati ma non ancora caricati (in attesa del salvataggio) ──
+function selezionaAllegatiEsame(input) {
+  Array.from(input.files || []).forEach(f => App.filesEsamePendenti.push(f));
+  input.value = '';
+  renderAllegatiPendentiEsame();
+}
 
-  const stato = document.getElementById('upload-allegato-esame-stato');
-  stato.textContent = 'Caricamento in corso…';
+function rimuoviAllegatoPendenteEsame(idx) {
+  App.filesEsamePendenti.splice(idx, 1);
+  renderAllegatiPendentiEsame();
+}
 
-  try {
-    const base64Data = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+function renderAllegatiPendentiEsame() {
+  const el = document.getElementById('allegati-pendenti-esame');
+  if (!App.filesEsamePendenti || !App.filesEsamePendenti.length) { el.innerHTML = ''; return; }
+  el.innerHTML = App.filesEsamePendenti.map((f, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">
+      <span>📎 ${f.name}</span>
+      <span style="color:var(--accent);cursor:pointer;padding:0 4px" onclick="rimuoviAllegatoPendenteEsame(${i})">✕</span>
+    </div>
+  `).join('');
+}
 
-    const resp = await apiPost('caricaAllegatoEsame', {
-      base64Data, mimeType: file.type, fileName: file.name, idDettEsame: id,
-    });
-    const res = resp.result || {};
-    if (res.ok) {
-      stato.textContent = 'Caricato ✓';
-      showToast('Allegato caricato ✓', 'success');
-      loadEsami(); // aggiorna la cache così il badge 📎 riflette il nuovo conteggio
-    } else {
-      stato.textContent = '';
-      showToast(res.msg || resp.error || 'Errore caricamento', 'error');
-    }
-  } catch (err) {
-    stato.textContent = '';
-    showToast('Errore durante il caricamento', 'error');
-  } finally {
-    input.value = '';
-  }
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function closeModalEsameOnBg(e) {
@@ -677,17 +674,34 @@ async function salvaEsame() {
 
   try {
     const resp = await apiPost(azione, dati);
+    const res = resp.result || {};
+    if (!res.ok) {
+      btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
+      btn.disabled = false;
+      showToast(res.msg || resp.error || 'Errore', 'error');
+      return;
+    }
+
+    const idFinale = id || res.id; // id esistente, oppure quello nuovo restituito dal server
+
+    if (App.filesEsamePendenti && App.filesEsamePendenti.length && idFinale) {
+      btn.textContent = 'Caricamento allegati…';
+      for (const file of App.filesEsamePendenti) {
+        try {
+          const base64Data = await fileToBase64(file);
+          await apiPost('caricaAllegatoEsame', {
+            base64Data, mimeType: file.type, fileName: file.name, idDettEsame: idFinale,
+          });
+        } catch (e) { /* un allegato fallito non blocca gli altri */ }
+      }
+    }
+
     btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
     btn.disabled = false;
-    const res = resp.result || {};
-    if (res.ok) {
-      showToast(id ? 'Esame aggiornato ✓' : 'Esame salvato ✓', 'success');
-      closeModalEsame();
-      loadEsami();
-      if (App.paginaCorrente === 'dashboard') loadDashboard();
-    } else {
-      showToast(res.msg || resp.error || 'Errore', 'error');
-    }
+    showToast(id ? 'Esame aggiornato ✓' : 'Esame salvato ✓', 'success');
+    closeModalEsame();
+    loadEsami();
+    if (App.paginaCorrente === 'dashboard') loadDashboard();
   } catch (err) {
     btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
     btn.disabled = false;
