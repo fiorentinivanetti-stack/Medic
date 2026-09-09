@@ -773,6 +773,9 @@ function openModalPatologia() {
   document.getElementById('inp-data-patologia').value = todayISO();
   ['inp-categoria', 'inp-patologia', 'inp-sintomi', 'inp-nota-patologia']
     .forEach(id => { document.getElementById(id).value = ''; });
+  App.filesPatologiaPendenti = [];
+  document.getElementById('inp-upload-allegato-patologia').value = '';
+  renderAllegatiPendentiPatologia();
   document.getElementById('btn-salva-patologia').textContent = 'Salva patologia';
   document.getElementById('modal-patologia').classList.add('open');
 }
@@ -788,8 +791,33 @@ function openModalModificaPatologia(id) {
   document.getElementById('inp-patologia').value = p.patologia || '';
   document.getElementById('inp-sintomi').value = p.sintomi || '';
   document.getElementById('inp-nota-patologia').value = p.note || '';
+  App.filesPatologiaPendenti = [];
+  document.getElementById('inp-upload-allegato-patologia').value = '';
+  renderAllegatiPendentiPatologia();
   document.getElementById('btn-salva-patologia').textContent = 'Aggiorna patologia';
   document.getElementById('modal-patologia').classList.add('open');
+}
+
+function selezionaAllegatiPatologia(input) {
+  Array.from(input.files || []).forEach(f => App.filesPatologiaPendenti.push(f));
+  input.value = '';
+  renderAllegatiPendentiPatologia();
+}
+
+function rimuoviAllegatoPendentePatologia(idx) {
+  App.filesPatologiaPendenti.splice(idx, 1);
+  renderAllegatiPendentiPatologia();
+}
+
+function renderAllegatiPendentiPatologia() {
+  const el = document.getElementById('allegati-pendenti-patologia');
+  if (!App.filesPatologiaPendenti || !App.filesPatologiaPendenti.length) { el.innerHTML = ''; return; }
+  el.innerHTML = App.filesPatologiaPendenti.map((f, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">
+      <span>📎 ${f.name}</span>
+      <span style="color:var(--accent);cursor:pointer;padding:0 4px" onclick="rimuoviAllegatoPendentePatologia(${i})">✕</span>
+    </div>
+  `).join('');
 }
 
 function closeModalPatologiaOnBg(e) {
@@ -822,16 +850,33 @@ async function salvaPatologia() {
 
   try {
     const resp = await apiPost(azione, dati);
+    const res = resp.result || {};
+    if (!res.ok) {
+      btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
+      btn.disabled = false;
+      showToast(res.msg || resp.error || 'Errore', 'error');
+      return;
+    }
+
+    const idFinale = id || res.id;
+
+    if (App.filesPatologiaPendenti && App.filesPatologiaPendenti.length && idFinale) {
+      btn.textContent = 'Caricamento allegati…';
+      for (const file of App.filesPatologiaPendenti) {
+        try {
+          const base64Data = await fileToBase64(file);
+          await apiPost('caricaAllegatoPatologia', {
+            base64Data, mimeType: file.type, fileName: file.name, idDettPatt: idFinale,
+          });
+        } catch (e) { /* un allegato fallito non blocca gli altri */ }
+      }
+    }
+
     btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
     btn.disabled = false;
-    const res = resp.result || {};
-    if (res.ok) {
-      showToast(id ? 'Patologia aggiornata ✓' : 'Patologia salvata ✓', 'success');
-      closeModalPatologia();
-      loadPatologie();
-    } else {
-      showToast(res.msg || resp.error || 'Errore', 'error');
-    }
+    showToast(id ? 'Patologia aggiornata ✓' : 'Patologia salvata ✓', 'success');
+    closeModalPatologia();
+    loadPatologie();
   } catch (err) {
     btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
     btn.disabled = false;
