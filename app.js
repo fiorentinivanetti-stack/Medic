@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════
 //  CONFIGURAZIONE — sostituisci con l'URL del TUO deployment
 // ═══════════════════════════════════════════════════════
-const API_URL = 'https://script.google.com/macros/s/AKfycbw48DqSDcV6N31EmMZ1-GaCk1cQ8JhDDkRDgYoh9dueD8nKtGxJ9MEzvAyKa_c-Qyuv7w/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxRSMsBySspZOToGEx6xwbNsFQGaCStELmSgD5Dr_3V7xYdapRiJSFhUBxOHvksz6NgnA/exec';
 const TOKEN_KEY = 'app_medica_token';
 
 // ═══════════════════════════════════════════════════════
