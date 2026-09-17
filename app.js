@@ -90,14 +90,14 @@ async function init() {
       showTokenScreen(resp.error);
       return;
     }
-    onUserLoaded(resp.result.user, resp.result.pazienti);
+    onUserLoaded(resp.result.user, resp.result.pazienti, resp.result.dashboard);
   } catch (err) {
     showError('Errore di connessione. Ricarica la pagina.');
     console.error(err);
   }
 }
 
-function onUserLoaded(user, pazienti) {
+function onUserLoaded(user, pazienti, dashboard) {
   App.user = user;
 
   const initials = ((user.nome || '?')[0] + (user.cognome || '?')[0]).toUpperCase();
@@ -122,7 +122,14 @@ function onUserLoaded(user, pazienti) {
   }
 
   showApp();
-  loadDashboard();
+  // La dashboard del primo paziente arriva già insieme a 'init': risparmia
+  // un'intera chiamata di rete al primo caricamento. Se per qualche motivo
+  // non c'è, la carichiamo comunque nel modo consueto.
+  if (dashboard) {
+    renderDashboard(dashboard);
+  } else {
+    loadDashboard();
+  }
 }
 
 function showApp() {
@@ -686,14 +693,12 @@ async function salvaEsame() {
 
     if (App.filesEsamePendenti && App.filesEsamePendenti.length && idFinale) {
       btn.textContent = 'Caricamento allegati…';
-      for (const file of App.filesEsamePendenti) {
-        try {
-          const base64Data = await fileToBase64(file);
-          await apiPost('caricaAllegatoEsame', {
-            base64Data, mimeType: file.type, fileName: file.name, idDettEsame: idFinale,
-          });
-        } catch (e) { /* un allegato fallito non blocca gli altri */ }
-      }
+      try {
+        const allegati = await Promise.all(App.filesEsamePendenti.map(async file => ({
+          base64Data: await fileToBase64(file), mimeType: file.type, fileName: file.name,
+        })));
+        await apiPost('caricaAllegatiEsame', { idDettEsame: idFinale, allegati });
+      } catch (e) { /* un problema sugli allegati non blocca il salvataggio già avvenuto */ }
     }
 
     btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
@@ -862,14 +867,12 @@ async function salvaPatologia() {
 
     if (App.filesPatologiaPendenti && App.filesPatologiaPendenti.length && idFinale) {
       btn.textContent = 'Caricamento allegati…';
-      for (const file of App.filesPatologiaPendenti) {
-        try {
-          const base64Data = await fileToBase64(file);
-          await apiPost('caricaAllegatoPatologia', {
-            base64Data, mimeType: file.type, fileName: file.name, idDettPatt: idFinale,
-          });
-        } catch (e) { /* un allegato fallito non blocca gli altri */ }
-      }
+      try {
+        const allegati = await Promise.all(App.filesPatologiaPendenti.map(async file => ({
+          base64Data: await fileToBase64(file), mimeType: file.type, fileName: file.name,
+        })));
+        await apiPost('caricaAllegatiPatologia', { idDettPatt: idFinale, allegati });
+      } catch (e) { /* un problema sugli allegati non blocca il salvataggio già avvenuto */ }
     }
 
     btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
