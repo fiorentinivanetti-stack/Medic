@@ -203,9 +203,11 @@ async function loadDashboard() {
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
   try {
     const resp = await apiGet('dashboard', { paziente: App.pazienteCorrente.email });
-    if (resp.error) { showToast('Errore caricamento dashboard', 'error'); return; }
+    if (resp.error) throw new Error(resp.error);
     renderDashboard(resp.result);
   } catch (err) {
+    document.getElementById('dashboard-content').innerHTML =
+      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadDashboard()">Riprova</button></div>';
     showToast('Errore caricamento dashboard', 'error');
   }
 }
@@ -284,9 +286,11 @@ async function loadPressione() {
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
   try {
     const resp = await apiGet('pressione', { paziente: App.pazienteCorrente.email, limit: 30 });
-    if (resp.error) { showToast('Errore caricamento pressione', 'error'); return; }
+    if (resp.error) throw new Error(resp.error);
     renderPressione(resp.result);
   } catch (err) {
+    document.getElementById('pressione-list').innerHTML =
+      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPressione()">Riprova</button></div>';
     showToast('Errore caricamento pressione', 'error');
   }
 }
@@ -529,13 +533,14 @@ async function loadEsami() {
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
   try {
     const resp = await apiGet('esami', { paziente: App.pazienteCorrente.email, limit: 20 });
-    if (resp.error) { showToast('Errore caricamento esami', 'error'); return; }
+    if (resp.error) throw new Error(resp.error);
     renderEsami(resp.result);
   } catch (err) {
+    document.getElementById('esami-list').innerHTML =
+      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadEsami()">Riprova</button></div>';
     showToast('Errore caricamento esami', 'error');
   }
 }
-
 function renderEsami(dati) {
   App.esamiCache = dati || [];
   const el = document.getElementById('esami-list');
@@ -743,13 +748,14 @@ async function loadPatologie() {
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
   try {
     const resp = await apiGet('patologie', { paziente: App.pazienteCorrente.email, limit: 30 });
-    if (resp.error) { showToast('Errore caricamento patologie', 'error'); return; }
+    if (resp.error) throw new Error(resp.error);
     renderPatologie(resp.result);
   } catch (err) {
+    document.getElementById('patologie-list').innerHTML =
+      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPatologie()">Riprova</button></div>';
     showToast('Errore caricamento patologie', 'error');
   }
 }
-
 function renderPatologie(dati) {
   App.patologieCache = dati || [];
   const el = document.getElementById('patologie-list');
