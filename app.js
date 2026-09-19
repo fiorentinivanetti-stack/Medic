@@ -19,26 +19,21 @@ const App = {
 // ═══════════════════════════════════════════════════════
 //  CHIAMATE API (fetch + token, niente google.script.run)
 // ═══════════════════════════════════════════════════════
-async function apiGet(action, params) {
-  const url = new URL(API_URL);
-  url.searchParams.set('token', App.token);
-  url.searchParams.set('action', action);
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) url.searchParams.set(k, v);
-  });
-  const res = await fetch(url.toString());
-  return res.json();
+async function fetchConRetry(url, options, tentativi = 3) {
+  for (let i = 0; i < tentativi; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch (err) {
+      if (i === tentativi - 1) throw err;               // ultimo tentativo fallito: arrenditi
+      await new Promise(r => setTimeout(r, 700 * (i + 1))); // aspetta un po' di più ad ogni tentativo
+    }
+  }
 }
 
-async function apiPost(action, payload) {
-  // text/plain evita il preflight CORS che Apps Script non gestisce
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(Object.assign({ token: App.token, action }, payload || {})),
-  });
-  return res.json();
-}
+
+ 
 
 // ═══════════════════════════════════════════════════════
 //  SCHERMATA CODICE DI ACCESSO
