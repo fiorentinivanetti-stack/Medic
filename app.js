@@ -32,8 +32,24 @@ async function fetchConRetry(url, options, tentativi = 3) {
   }
 }
 
+async function apiGet(action, params) {
+  const url = new URL(API_URL);
+  url.searchParams.set('token', App.token);
+  url.searchParams.set('action', action);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  });
+  return fetchConRetry(url.toString());
+}
 
- 
+async function apiPost(action, payload) {
+  // text/plain evita il preflight CORS che Apps Script non gestisce
+  return fetchConRetry(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ token: App.token, action }, payload || {})),
+  });
+}
 
 // ═══════════════════════════════════════════════════════
 //  SCHERMATA CODICE DI ACCESSO
