@@ -461,8 +461,11 @@ async function salvaPressione() {
     if (res.ok) {
       showToast(id ? 'Aggiornato ✓' : 'Salvato! ✓', 'success');
       closeModal();
-      loadPressione();
-      if (App.paginaCorrente === 'dashboard') loadDashboard();
+      // Il server ci restituisce già la lista aggiornata: niente seconda chiamata.
+      if (res.pressione) renderPressione(res.pressione); else loadPressione();
+      if (App.paginaCorrente === 'dashboard') {
+        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
@@ -483,8 +486,10 @@ async function eliminaPressione() {
     if (res.ok) {
       showToast('Misurazione eliminata', 'success');
       closeModal();
-      loadPressione();
-      if (App.paginaCorrente === 'dashboard') loadDashboard();
+      if (res.pressione) renderPressione(res.pressione); else loadPressione();
+      if (App.paginaCorrente === 'dashboard') {
+        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
@@ -707,13 +712,22 @@ async function salvaEsame() {
 
     const idFinale = id || res.id; // id esistente, oppure quello nuovo restituito dal server
 
+    // Partiamo dalla lista/dashboard già restituite dal salvataggio; se carichiamo
+    // anche allegati, la risposta di quella chiamata le sostituisce con la versione
+    // ancora più aggiornata (che include i nuovi allegati).
+    let esamiFinali = res.esami;
+    let dashboardFinale = res.dashboard;
+
     if (App.filesEsamePendenti && App.filesEsamePendenti.length && idFinale) {
       btn.textContent = 'Caricamento allegati…';
       try {
         const allegati = await Promise.all(App.filesEsamePendenti.map(async file => ({
           base64Data: await fileToBase64(file), mimeType: file.type, fileName: file.name,
         })));
-        await apiPost('caricaAllegatiEsame', { idDettEsame: idFinale, allegati });
+        const respAll = await apiPost('caricaAllegatiEsame', { idDettEsame: idFinale, allegati });
+        const resAll = respAll.result || {};
+        if (resAll.esami) esamiFinali = resAll.esami;
+        if (resAll.dashboard) dashboardFinale = resAll.dashboard;
       } catch (e) { /* un problema sugli allegati non blocca il salvataggio già avvenuto */ }
     }
 
@@ -721,8 +735,10 @@ async function salvaEsame() {
     btn.disabled = false;
     showToast(id ? 'Esame aggiornato ✓' : 'Esame salvato ✓', 'success');
     closeModalEsame();
-    loadEsami();
-    if (App.paginaCorrente === 'dashboard') loadDashboard();
+    if (esamiFinali) renderEsami(esamiFinali); else loadEsami();
+    if (App.paginaCorrente === 'dashboard') {
+      if (dashboardFinale) renderDashboard(dashboardFinale); else loadDashboard();
+    }
   } catch (err) {
     btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
     btn.disabled = false;
@@ -740,8 +756,10 @@ async function eliminaEsame() {
     if (res.ok) {
       showToast('Esame eliminato', 'success');
       closeModalEsame();
-      loadEsami();
-      if (App.paginaCorrente === 'dashboard') loadDashboard();
+      if (res.esami) renderEsami(res.esami); else loadEsami();
+      if (App.paginaCorrente === 'dashboard') {
+        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
@@ -881,6 +899,7 @@ async function salvaPatologia() {
     }
 
     const idFinale = id || res.id;
+    let patologieFinali = res.patologie;
 
     if (App.filesPatologiaPendenti && App.filesPatologiaPendenti.length && idFinale) {
       btn.textContent = 'Caricamento allegati…';
@@ -888,7 +907,9 @@ async function salvaPatologia() {
         const allegati = await Promise.all(App.filesPatologiaPendenti.map(async file => ({
           base64Data: await fileToBase64(file), mimeType: file.type, fileName: file.name,
         })));
-        await apiPost('caricaAllegatiPatologia', { idDettPatt: idFinale, allegati });
+        const respAll = await apiPost('caricaAllegatiPatologia', { idDettPatt: idFinale, allegati });
+        const resAll = respAll.result || {};
+        if (resAll.patologie) patologieFinali = resAll.patologie;
       } catch (e) { /* un problema sugli allegati non blocca il salvataggio già avvenuto */ }
     }
 
@@ -896,7 +917,7 @@ async function salvaPatologia() {
     btn.disabled = false;
     showToast(id ? 'Patologia aggiornata ✓' : 'Patologia salvata ✓', 'success');
     closeModalPatologia();
-    loadPatologie();
+    if (patologieFinali) renderPatologie(patologieFinali); else loadPatologie();
   } catch (err) {
     btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
     btn.disabled = false;
@@ -914,7 +935,7 @@ async function eliminaPatologia() {
     if (res.ok) {
       showToast('Patologia eliminata', 'success');
       closeModalPatologia();
-      loadPatologie();
+      if (res.patologie) renderPatologie(res.patologie); else loadPatologie();
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
