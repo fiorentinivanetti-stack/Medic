@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════
 const API_URL = 'https://script.google.com/macros/s/AKfycbx3gSqQjg1nvpm2XrNWrzzxvGKYxLw7VifpB757IZJF4sAH29C6MaQTIdZ1jvy8oTkcCw/exec';
 const TOKEN_KEY = 'app_medica_token';
+const CACHE_PREFIX = 'app_medica_cache_';
 
 // ═══════════════════════════════════════════════════════
 //  STATO GLOBALE
@@ -17,17 +18,45 @@ const App = {
 };
 
 // ═══════════════════════════════════════════════════════
+//  CACHE LOCALE (localStorage) — stesso principio di index.html:
+//  mostra subito l'ultima copia salvata, poi aggiorna in sottofondo.
+//  Senza questo, ogni cambio di pagina aspetta una risposta di rete
+//  intera anche per dati identici a quelli appena visti.
+// ═══════════════════════════════════════════════════════
+function chiaveCache(tipo, email) {
+  return CACHE_PREFIX + tipo + ':' + (email || '_');
+}
+
+function salvaCache(tipo, email, dati) {
+  try {
+    localStorage.setItem(chiaveCache(tipo, email), JSON.stringify({ dati, ts: Date.now() }));
+  } catch (err) { /* storage pieno o non disponibile: non blocca nulla */ }
+}
+
+function leggiCache(tipo, email) {
+  try {
+    const raw = localStorage.getItem(chiaveCache(tipo, email));
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) { return null; }
+}
+
+// ═══════════════════════════════════════════════════════
 //  CHIAMATE API (fetch + token, niente google.script.run)
 // ═══════════════════════════════════════════════════════
-async function fetchConRetry(url, options, tentativi = 3) {
+async function fetchConRetry(url, options, tentativi = 2) {
   for (let i = 0; i < tentativi; i++) {
     try {
       const res = await fetch(url, options);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       return await res.json();
     } catch (err) {
-      if (i === tentativi - 1) throw err;               // ultimo tentativo fallito: arrenditi
-      await new Promise(r => setTimeout(r, 700 * (i + 1))); // aspetta un po' di più ad ogni tentativo
+      if (i === tentativi - 1) throw err;
+      // Un solo retry, attesa breve: la UI non deve mai restare bloccata
+      // a lungo su un errore transitorio quando ha già dati in cache da
+      // mostrare. Il vecchio backoff (fino a 3 tentativi, 2.1s di attese
+      // fisse) aggiungeva ritardo percepito proprio nei casi in cui la
+      // rete era già lenta.
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 }
@@ -91,16 +120,28 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// Come in index.html: se esiste una copia in cache dell'avvio (utente +
+// elenco pazienti + dashboard del primo paziente), la mostriamo SUBITO,
+// a schermo intero, senza passare dalla schermata di caricamento. La rete
+// viene comunque interrogata subito dopo, in sottofondo, per rinfrescare
+// i dati senza che l'utente debba aspettare.
 async function init() {
+  const cache = leggiCache('init', '_');
+  if (cache && cache.dati) {
+    onUserLoaded(cache.dati.user, cache.dati.pazienti, cache.dati.dashboard, /* daCache */ true);
+    aggiornaInitInSottofondo();
+    return;
+  }
+
   try {
     const resp = await apiGet('init');
     if (resp.error) {
-      // Codice errato o mancante: torna alla schermata di inserimento
       localStorage.removeItem(TOKEN_KEY);
       App.token = null;
       showTokenScreen(resp.error);
       return;
     }
+    salvaCache('init', '_', resp.result);
     onUserLoaded(resp.result.user, resp.result.pazienti, resp.result.dashboard);
   } catch (err) {
     showError('Errore di connessione. Ricarica la pagina.');
@@ -108,7 +149,24 @@ async function init() {
   }
 }
 
-function onUserLoaded(user, pazienti, dashboard) {
+async function aggiornaInitInSottofondo() {
+  try {
+    const resp = await apiGet('init');
+    if (resp.error) return; // in sottofondo non disturbiamo: resta quanto già mostrato
+    salvaCache('init', '_', resp.result);
+    App.user = resp.result.user;
+    App.pazienti = resp.result.pazienti || [];
+    // Se la pagina attiva è la dashboard del paziente corrente, aggiorniamo
+    // la vista con i dati freschi; altrimenti la prossima navigazione la
+    // aggiornerà con lo stesso meccanismo cache-first.
+    if (App.paginaCorrente === 'dashboard' && App.pazienteCorrente) {
+      const paz = App.pazienti.find(p => p.email === App.pazienteCorrente.email);
+      if (paz) App.pazienteCorrente = paz;
+    }
+  } catch (err) { /* silenzioso: la rete potrebbe essere lenta o assente */ }
+}
+
+function onUserLoaded(user, pazienti, dashboard, daCache) {
   App.user = user;
 
   const initials = ((user.nome || '?')[0] + (user.cognome || '?')[0]).toUpperCase();
@@ -133,11 +191,9 @@ function onUserLoaded(user, pazienti, dashboard) {
   }
 
   showApp();
-  // La dashboard del primo paziente arriva già insieme a 'init': risparmia
-  // un'intera chiamata di rete al primo caricamento. Se per qualche motivo
-  // non c'è, la carichiamo comunque nel modo consueto.
   if (dashboard) {
     renderDashboard(dashboard);
+    if (App.pazienteCorrente) salvaCache('dashboard', App.pazienteCorrente.email, dashboard);
   } else {
     loadDashboard();
   }
@@ -208,18 +264,42 @@ function onPazienteChange(email) {
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════
+// Pattern comune a tutte le load*: se c'è una copia in cache per QUESTO
+// paziente, la mostriamo subito (nessuno spinner, nessuna attesa) e poi
+// aggiorniamo in sottofondo. Solo se non c'è nessuna cache mostriamo lo
+// spinner, perché in quel caso non abbiamo altro da far vedere.
 async function loadDashboard() {
   if (!App.pazienteCorrente) return;
+  const email = App.pazienteCorrente.email;
+  const cache = leggiCache('dashboard', email);
+
+  if (cache && cache.dati) {
+    renderDashboard(cache.dati);
+    caricaDashboardRete(email, /* silenzioso */ true);
+    return;
+  }
+
   document.getElementById('dashboard-content').innerHTML =
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+  caricaDashboardRete(email, false);
+}
+
+async function caricaDashboardRete(email, silenzioso) {
   try {
-    const resp = await apiGet('dashboard', { paziente: App.pazienteCorrente.email });
+    const resp = await apiGet('dashboard', { paziente: email });
     if (resp.error) throw new Error(resp.error);
-    renderDashboard(resp.result);
+    salvaCache('dashboard', email, resp.result);
+    // Se nel frattempo l'utente ha cambiato paziente o pagina, non sovrascriviamo la vista.
+    if (App.pazienteCorrente && App.pazienteCorrente.email === email && App.paginaCorrente === 'dashboard') {
+      renderDashboard(resp.result);
+    }
   } catch (err) {
-    document.getElementById('dashboard-content').innerHTML =
-      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadDashboard()">Riprova</button></div>';
-    showToast('Errore caricamento dashboard', 'error');
+    if (!silenzioso) {
+      document.getElementById('dashboard-content').innerHTML =
+        '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadDashboard()">Riprova</button></div>';
+      showToast('Errore caricamento dashboard', 'error');
+    }
+    // In sottofondo restiamo in silenzio: quanto già in cache resta visibile.
   }
 }
 
@@ -293,16 +373,37 @@ function renderDashboard(stats) {
 // ═══════════════════════════════════════════════════════
 async function loadPressione() {
   if (!App.pazienteCorrente) return;
+  const email = App.pazienteCorrente.email;
+  const cache = leggiCache('pressione', email);
+
+  if (cache && cache.dati) {
+    renderPressione(cache.dati);
+    caricaPressioneRete(email, true);
+    return;
+  }
+
   document.getElementById('pressione-list').innerHTML =
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+  caricaPressioneRete(email, false);
+}
+
+async function caricaPressioneRete(email, silenzioso) {
   try {
-    const resp = await apiGet('pressione', { paziente: App.pazienteCorrente.email, limit: 30 });
+    const resp = await apiGet('pressione', { paziente: email, limit: 30 });
     if (resp.error) throw new Error(resp.error);
-    renderPressione(resp.result);
+    salvaCache('pressione', email, resp.result);
+    if (App.pazienteCorrente && App.pazienteCorrente.email === email && App.paginaCorrente === 'pressione') {
+      renderPressione(resp.result);
+    } else {
+      // Anche se non è la vista attiva, teniamo la cache di modifica pronta.
+      App.pressioneCache = resp.result || [];
+    }
   } catch (err) {
-    document.getElementById('pressione-list').innerHTML =
-      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPressione()">Riprova</button></div>';
-    showToast('Errore caricamento pressione', 'error');
+    if (!silenzioso) {
+      document.getElementById('pressione-list').innerHTML =
+        '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPressione()">Riprova</button></div>';
+      showToast('Errore caricamento pressione', 'error');
+    }
   }
 }
 
@@ -461,10 +562,15 @@ async function salvaPressione() {
     if (res.ok) {
       showToast(id ? 'Aggiornato ✓' : 'Salvato! ✓', 'success');
       closeModal();
-      // Il server ci restituisce già la lista aggiornata: niente seconda chiamata.
-      if (res.pressione) renderPressione(res.pressione); else loadPressione();
-      if (App.paginaCorrente === 'dashboard') {
-        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      const email = App.pazienteCorrente.email;
+      // Il server ci restituisce già la lista aggiornata: niente seconda
+      // chiamata, e aggiorniamo subito anche la cache locale così una
+      // futura navigazione su questa pagina non mostri dati vecchi.
+      if (res.pressione) { renderPressione(res.pressione); salvaCache('pressione', email, res.pressione); }
+      else loadPressione();
+      if (res.dashboard) {
+        salvaCache('dashboard', email, res.dashboard);
+        if (App.paginaCorrente === 'dashboard') renderDashboard(res.dashboard);
       }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
@@ -486,9 +592,12 @@ async function eliminaPressione() {
     if (res.ok) {
       showToast('Misurazione eliminata', 'success');
       closeModal();
-      if (res.pressione) renderPressione(res.pressione); else loadPressione();
-      if (App.paginaCorrente === 'dashboard') {
-        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      const email = App.pazienteCorrente.email;
+      if (res.pressione) { renderPressione(res.pressione); salvaCache('pressione', email, res.pressione); }
+      else loadPressione();
+      if (res.dashboard) {
+        salvaCache('dashboard', email, res.dashboard);
+        if (App.paginaCorrente === 'dashboard') renderDashboard(res.dashboard);
       }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
@@ -545,18 +654,39 @@ function apriAllegatiPatologia(id) { return apriAllegatiDa(App.patologieCache, i
 // ═══════════════════════════════════════════════════════
 async function loadEsami() {
   if (!App.pazienteCorrente) return;
+  const email = App.pazienteCorrente.email;
+  const cache = leggiCache('esami', email);
+
+  if (cache && cache.dati) {
+    renderEsami(cache.dati);
+    caricaEsamiRete(email, true);
+    return;
+  }
+
   document.getElementById('esami-list').innerHTML =
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+  caricaEsamiRete(email, false);
+}
+
+async function caricaEsamiRete(email, silenzioso) {
   try {
-    const resp = await apiGet('esami', { paziente: App.pazienteCorrente.email, limit: 20 });
+    const resp = await apiGet('esami', { paziente: email, limit: 20 });
     if (resp.error) throw new Error(resp.error);
-    renderEsami(resp.result);
+    salvaCache('esami', email, resp.result);
+    if (App.pazienteCorrente && App.pazienteCorrente.email === email && App.paginaCorrente === 'esami') {
+      renderEsami(resp.result);
+    } else {
+      App.esamiCache = resp.result || [];
+    }
   } catch (err) {
-    document.getElementById('esami-list').innerHTML =
-      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadEsami()">Riprova</button></div>';
-    showToast('Errore caricamento esami', 'error');
+    if (!silenzioso) {
+      document.getElementById('esami-list').innerHTML =
+        '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadEsami()">Riprova</button></div>';
+      showToast('Errore caricamento esami', 'error');
+    }
   }
 }
+
 function renderEsami(dati) {
   App.esamiCache = dati || [];
   const el = document.getElementById('esami-list');
@@ -699,6 +829,7 @@ async function salvaEsame() {
   btn.disabled = true;
 
   const azione = id ? 'modificaEsame' : 'salvaEsame';
+  const email = App.pazienteCorrente.email;
 
   try {
     const resp = await apiPost(azione, dati);
@@ -712,9 +843,6 @@ async function salvaEsame() {
 
     const idFinale = id || res.id; // id esistente, oppure quello nuovo restituito dal server
 
-    // Partiamo dalla lista/dashboard già restituite dal salvataggio; se carichiamo
-    // anche allegati, la risposta di quella chiamata le sostituisce con la versione
-    // ancora più aggiornata (che include i nuovi allegati).
     let esamiFinali = res.esami;
     let dashboardFinale = res.dashboard;
 
@@ -735,9 +863,11 @@ async function salvaEsame() {
     btn.disabled = false;
     showToast(id ? 'Esame aggiornato ✓' : 'Esame salvato ✓', 'success');
     closeModalEsame();
-    if (esamiFinali) renderEsami(esamiFinali); else loadEsami();
-    if (App.paginaCorrente === 'dashboard') {
-      if (dashboardFinale) renderDashboard(dashboardFinale); else loadDashboard();
+    if (esamiFinali) { renderEsami(esamiFinali); salvaCache('esami', email, esamiFinali); }
+    else loadEsami();
+    if (dashboardFinale) {
+      salvaCache('dashboard', email, dashboardFinale);
+      if (App.paginaCorrente === 'dashboard') renderDashboard(dashboardFinale);
     }
   } catch (err) {
     btn.textContent = id ? 'Aggiorna esame' : 'Salva esame';
@@ -756,9 +886,12 @@ async function eliminaEsame() {
     if (res.ok) {
       showToast('Esame eliminato', 'success');
       closeModalEsame();
-      if (res.esami) renderEsami(res.esami); else loadEsami();
-      if (App.paginaCorrente === 'dashboard') {
-        if (res.dashboard) renderDashboard(res.dashboard); else loadDashboard();
+      const email = App.pazienteCorrente.email;
+      if (res.esami) { renderEsami(res.esami); salvaCache('esami', email, res.esami); }
+      else loadEsami();
+      if (res.dashboard) {
+        salvaCache('dashboard', email, res.dashboard);
+        if (App.paginaCorrente === 'dashboard') renderDashboard(res.dashboard);
       }
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
@@ -773,18 +906,39 @@ async function eliminaEsame() {
 // ═══════════════════════════════════════════════════════
 async function loadPatologie() {
   if (!App.pazienteCorrente) return;
+  const email = App.pazienteCorrente.email;
+  const cache = leggiCache('patologie', email);
+
+  if (cache && cache.dati) {
+    renderPatologie(cache.dati);
+    caricaPatologieRete(email, true);
+    return;
+  }
+
   document.getElementById('patologie-list').innerHTML =
     '<div class="empty-state"><div class="spinner" style="margin:0 auto"></div></div>';
+  caricaPatologieRete(email, false);
+}
+
+async function caricaPatologieRete(email, silenzioso) {
   try {
-    const resp = await apiGet('patologie', { paziente: App.pazienteCorrente.email, limit: 30 });
+    const resp = await apiGet('patologie', { paziente: email, limit: 30 });
     if (resp.error) throw new Error(resp.error);
-    renderPatologie(resp.result);
+    salvaCache('patologie', email, resp.result);
+    if (App.pazienteCorrente && App.pazienteCorrente.email === email && App.paginaCorrente === 'patologie') {
+      renderPatologie(resp.result);
+    } else {
+      App.patologieCache = resp.result || [];
+    }
   } catch (err) {
-    document.getElementById('patologie-list').innerHTML =
-      '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPatologie()">Riprova</button></div>';
-    showToast('Errore caricamento patologie', 'error');
+    if (!silenzioso) {
+      document.getElementById('patologie-list').innerHTML =
+        '<div class="empty-state"><p>⚠️ Errore di caricamento.</p><button class="btn btn-secondary" onclick="loadPatologie()">Riprova</button></div>';
+      showToast('Errore caricamento patologie', 'error');
+    }
   }
 }
+
 function renderPatologie(dati) {
   App.patologieCache = dati || [];
   const el = document.getElementById('patologie-list');
@@ -887,6 +1041,7 @@ async function salvaPatologia() {
   btn.disabled = true;
 
   const azione = id ? 'modificaPatologia' : 'salvaPatologia';
+  const email = App.pazienteCorrente.email;
 
   try {
     const resp = await apiPost(azione, dati);
@@ -917,7 +1072,8 @@ async function salvaPatologia() {
     btn.disabled = false;
     showToast(id ? 'Patologia aggiornata ✓' : 'Patologia salvata ✓', 'success');
     closeModalPatologia();
-    if (patologieFinali) renderPatologie(patologieFinali); else loadPatologie();
+    if (patologieFinali) { renderPatologie(patologieFinali); salvaCache('patologie', email, patologieFinali); }
+    else loadPatologie();
   } catch (err) {
     btn.textContent = id ? 'Aggiorna patologia' : 'Salva patologia';
     btn.disabled = false;
@@ -935,7 +1091,9 @@ async function eliminaPatologia() {
     if (res.ok) {
       showToast('Patologia eliminata', 'success');
       closeModalPatologia();
-      if (res.patologie) renderPatologie(res.patologie); else loadPatologie();
+      const email = App.pazienteCorrente.email;
+      if (res.patologie) { renderPatologie(res.patologie); salvaCache('patologie', email, res.patologie); }
+      else loadPatologie();
     } else {
       showToast(res.msg || resp.error || 'Errore', 'error');
     }
@@ -1046,13 +1204,21 @@ async function salvaProfilo() {
     btn.disabled = false;
     const res = resp.result || {};
     if (res.ok) {
-      // Aggiorna la cache locale così la pagina mostra subito i nuovi dati
       Object.assign(p, {
         nome: dati.nome, luogo: dati.luogo, sangue: dati.sangue, cellulare: dati.cellulare,
         indirizzo: dati.indirizzo, codFis: dati.codFis, allergie: dati.allergie,
         parente: dati.parente, cellulareParente: dati.cellulareParente,
         nascita: dati.nascita ? dati.nascita.split('-').reverse().join('/') : '',
       });
+      // L'elenco pazienti fa parte della cache 'init': la aggiorniamo anche
+      // lì, altrimenti un ricaricamento della pagina mostrerebbe di nuovo i
+      // dati vecchi finché non arriva la prossima risposta di rete.
+      const cacheInit = leggiCache('init', '_');
+      if (cacheInit && cacheInit.dati && cacheInit.dati.pazienti) {
+        const paz = cacheInit.dati.pazienti.find(x => x.email === p.email);
+        if (paz) Object.assign(paz, p);
+        salvaCache('init', '_', cacheInit.dati);
+      }
       const opt = document.querySelector(`#paziente-select option[value="${p.email}"]`);
       if (opt) opt.textContent = dati.nome;
       showToast('Profilo aggiornato ✓', 'success');
