@@ -670,7 +670,7 @@ async function loadEsami() {
 
 async function caricaEsamiRete(email, silenzioso) {
   try {
-    const resp = await apiGet('esami', { paziente: email, limit: 20 });
+    const resp = await apiGet('esami', { paziente: email, limit: 200 });
     if (resp.error) throw new Error(resp.error);
     salvaCache('esami', email, resp.result);
     if (App.pazienteCorrente && App.pazienteCorrente.email === email && App.paginaCorrente === 'esami') {
